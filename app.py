@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import re
@@ -133,11 +134,14 @@ def extract_features(transcript):
 
 @st.cache_resource
 def load_model():
-    # Get the directory where app.py lives
+    import pickle
     base = Path(__file__).parent / "models"
-    model  = joblib.load(base / "FINAL_model.pkl")
-    scaler = joblib.load(base / "FINAL_scaler.pkl")
-    le     = joblib.load(base / "FINAL_le.pkl")
+    with open(base / "FINAL_model.pkl","rb") as f:
+        model = pickle.load(f)
+    with open(base / "FINAL_scaler.pkl","rb") as f:
+        scaler = pickle.load(f)
+    with open(base / "FINAL_le.pkl","rb") as f:
+        le = pickle.load(f)
     with open(base / "FINAL_features.json") as f:
         feat_cols = json.load(f)
     return model, scaler, le, feat_cols
