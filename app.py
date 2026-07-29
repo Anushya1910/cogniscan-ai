@@ -345,12 +345,9 @@ with tab1:
             if feats is None:
                 st.error("Transcript too short. Enter at least 3 sentences.")
             else:
-                X_in = np.array([[feats.get(f,0) for f in feat_cols]])
-                X_sc = scaler.transform(X_in)
-                pred_e = model.predict(X_sc)[0]
-                probs  = model.predict_proba(X_sc)[0]
-                pred   = le.classes_[pred_e]
-                conf   = probs.max()
+                pred, prob_dict = rule_predict(feats)
+                probs = [prob_dict.get(c,0) for c in ["AD","Control","MCI"]]
+                conf  = prob_dict[pred]
 
                 cls_emoji = {"AD":"🔴","Control":"🟢","MCI":"🟡"}
                 cls_full  = {
