@@ -3,13 +3,14 @@ import streamlit as st
 import numpy as np
 import re
 import json
+import joblib
 import os
 import matplotlib.pyplot as plt
 from collections import Counter
-from pathlib import Path
 import nltk
 nltk.download("stopwords", quiet=True)
 from nltk.corpus import stopwords as nltk_stopwords
+from pathlib import Path
 
 st.set_page_config(
     page_title="CogniScan AI",
@@ -20,13 +21,16 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
-html,body,[class*="css"]{font-family:"Inter",sans-serif;}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stApp{background:linear-gradient(135deg,#0a0e1a 0%,#0d1525 50%,#0a1020 100%);color:#e2e8f0;}
 .stTabs [data-baseweb="tab-list"]{background:rgba(15,23,42,0.8);border-radius:12px;padding:4px;}
 .stTabs [data-baseweb="tab"]{color:#64748b;border-radius:8px;}
 .stTabs [aria-selected="true"]{background:rgba(45,212,191,0.15);color:#2dd4bf;}
 .stButton>button{background:linear-gradient(90deg,#0d9488,#0284c7);color:white;border:none;border-radius:10px;font-weight:500;}
+.stButton>button:hover{background:linear-gradient(90deg,#0f766e,#0369a1);}
+.stTextArea textarea{background:rgba(15,23,42,0.8);border:1px solid rgba(45,212,191,0.2);border-radius:12px;color:#e2e8f0;}
+.stSelectbox>div>div{background:rgba(15,23,42,0.8);border:1px solid rgba(45,212,191,0.2);color:#e2e8f0;}
 section[data-testid="stSidebar"]{background:rgba(10,14,26,0.98)!important;border-right:1px solid rgba(45,212,191,0.15)!important;}
 #MainMenu,footer,header{visibility:hidden;}
 .block-container{padding-top:1rem;}
@@ -42,6 +46,9 @@ CLINICAL_MAP = {
         "avg_sent_len":"Shorter fragmented sentences — reduced syntactic complexity",
         "mattr":"Reduced vocabulary diversity — narrowing lexical access",
         "filler_ratio":"Increased hesitation markers — word-finding difficulty",
+        "energy_mean":"Reduced vocal energy — flattened speech dynamics",
+        "pause_ratio":"Elevated pause frequency — processing delays",
+        "cds":"Progressive biomarker drift across recorded sessions",
     },
     "Control":{
         "num_utterances":"Normal speech output volume — preserved discourse ability",
@@ -49,6 +56,9 @@ CLINICAL_MAP = {
         "avg_sent_len":"Normal sentence complexity — preserved syntax",
         "mattr":"Rich vocabulary diversity — strong lexical access",
         "filler_ratio":"Fluent speech — minimal hesitation",
+        "energy_mean":"Normal vocal energy — healthy speech dynamics",
+        "pause_ratio":"Normal pause frequency — efficient processing",
+        "cds":"Stable biomarker pattern across sessions",
     },
     "MCI":{
         "num_utterances":"Moderately reduced speech output — subtle decline",
@@ -56,6 +66,9 @@ CLINICAL_MAP = {
         "avg_sent_len":"Slightly shorter sentences — mild syntactic reduction",
         "mattr":"Mildly reduced vocabulary — early lexical narrowing",
         "filler_ratio":"Mild hesitation increase — subtle word-finding effort",
+        "energy_mean":"Slightly reduced vocal energy — mild speech change",
+        "pause_ratio":"Mildly elevated pauses — subtle processing delay",
+        "cds":"Subtle biomarker changes observed across sessions",
     }
 }
 
@@ -93,9 +106,8 @@ def extract_features(transcript):
     word_freq = Counter(words)
     sentences = [s.strip() for s in re.split(r"[.!?]",text) if len(s.strip())>2]
     window    = 20
-    mattr     = round(np.mean([len(set(words[i:i+window]))/window
-                for i in range(N-window+1)]),4) if N>=window else round(V/N,4)
-    fillers       = ["um","uh","mhm","hmm","er","ah","well","okay"]
+    mattr     = round(np.mean([len(set(words[i:i+window]))/window for i in range(N-window+1)]),4) if N>=window else round(V/N,4)
+    fillers   = ["um","uh","mhm","hmm","er","ah","well","okay"]
     filler_ratio  = round(sum(words.count(f) for f in fillers)/N,4)
     repeated      = sum(1 for w,c in word_freq.items() if c>2)
     rep_ratio     = round(repeated/V,4) if V>0 else 0
@@ -108,96 +120,32 @@ def extract_features(transcript):
     article_ratio = round(sum(words.count(a) for a in articles)/N,4)
     conjs         = ["and","but","because","so","then","also"]
     conj_ratio    = round(sum(words.count(c) for c in conjs)/N,4)
-    subs          = ["because","although","while","when","after","before",
-                     "since","if","that","which","who"]
+    subs          = ["because","although","while","when","after","before","since","if","that","which","who"]
     sub_ratio     = round(sum(words.count(s) for s in subs)/N,4)
     num_utt       = transcript.count(".")
     return {
         "mattr":mattr,"filler_ratio":filler_ratio,"repetition_ratio":rep_ratio,
         "avg_sent_len":avg_sent_len,"content_ratio":content_ratio,
         "pronoun_ratio":pronoun_ratio,"article_ratio":article_ratio,
-        "conj_ratio":conj_ratio,"sub_ratio":sub_ratio,"num_utterances":num_utt
+        "conj_ratio":conj_ratio,"sub_ratio":sub_ratio,"num_utterances":num_utt,
+        "pause_ratio":0.35,"speech_rate":0.12,"energy_mean":0.03,
+        "pitch_mean":1200.0,"centroid_mean":1600.0,"cds":50.0
     }
 
-FEAT_COLS = ["mattr","filler_ratio","repetition_ratio","avg_sent_len",
-             "content_ratio","pronoun_ratio","article_ratio",
-             "conj_ratio","sub_ratio","num_utterances"]
+@st.cache_resource
+def load_model():
+    # Get the directory where app.py lives
+    base = Path(__file__).parent / "models"
+    model  = joblib.load(base / "FINAL_model.pkl")
+    scaler = joblib.load(base / "FINAL_scaler.pkl")
+    le     = joblib.load(base / "FINAL_le.pkl")
+    with open(base / "FINAL_features.json") as f:
+        feat_cols = json.load(f)
+    return model, scaler, le, feat_cols
 
-# Rule-based classifier — no pickle needed
-# Based on clinically validated thresholds from our trained model
-def rule_based_predict(feats):
-    score_ad  = 0.0
-    score_mci = 0.0
-    score_con = 0.0
+model, scaler, le, feat_cols = load_model()
 
-    # num_utterances — strongest feature
-    nu = feats["num_utterances"]
-    if nu < 15:
-        score_ad  += 0.35
-    elif nu < 30:
-        score_mci += 0.20
-        score_con += 0.15
-    else:
-        score_con += 0.35
-
-    # avg_sent_len
-    asl = feats["avg_sent_len"]
-    if asl < 8:
-        score_ad  += 0.20
-    elif asl < 10:
-        score_mci += 0.15
-    else:
-        score_con += 0.20
-
-    # repetition_ratio
-    rr = feats["repetition_ratio"]
-    if rr < 0.10:
-        score_ad  += 0.15
-    elif rr < 0.22:
-        score_mci += 0.10
-    else:
-        score_con += 0.15
-
-    # mattr
-    m = feats["mattr"]
-    if m > 0.80:
-        score_ad  += 0.10
-    elif m > 0.70:
-        score_mci += 0.08
-    else:
-        score_con += 0.10
-
-    # filler_ratio
-    fr = feats["filler_ratio"]
-    if fr > 0.015:
-        score_ad  += 0.10
-    elif fr > 0.008:
-        score_mci += 0.08
-    else:
-        score_con += 0.10
-
-    # content_ratio
-    cr = feats["content_ratio"]
-    if cr < 0.42:
-        score_ad  += 0.10
-    elif cr < 0.43:
-        score_mci += 0.07
-    else:
-        score_con += 0.10
-
-    total = score_ad + score_mci + score_con
-    if total == 0:
-        total = 1
-
-    probs = {
-        "AD"     : round(score_ad/total, 3),
-        "MCI"    : round(score_mci/total, 3),
-        "Control": round(score_con/total, 3)
-    }
-    pred = max(probs, key=probs.get)
-    return pred, probs
-
-# Header
+# ── HEADER ─────────────────────────────────────────────────
 st.markdown("""
 <div style="text-align:center;padding:2rem 0 1.5rem 0;
 border-bottom:1px solid rgba(45,212,191,0.2);margin-bottom:2rem">
@@ -213,7 +161,7 @@ Explainable Multimodal Cognitive Decline Detection
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar
+# ── SIDEBAR ────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🧠 CogniScan AI")
     st.caption("VERSION 1.0 · RESEARCH PROTOTYPE")
@@ -236,6 +184,7 @@ with st.sidebar:
     st.divider()
     st.warning("Research prototype only. Not for clinical diagnosis.")
 
+# ── TABS ───────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["🔍 Analyze Speech","📊 Model Performance","ℹ️ About"])
 
 with tab1:
@@ -249,26 +198,28 @@ with tab1:
         if use_sample:
             sample_key = st.selectbox("Choose sample", list(SAMPLES.keys()))
             transcript = SAMPLES[sample_key]
-            st.text_area("Sample transcript",value=transcript,
-                          height=200,disabled=True)
+            st.text_area("Sample transcript",value=transcript,height=200,disabled=True)
         else:
             transcript = st.text_area(
-                "Paste speech transcript here", height=200,
+                "Paste speech transcript here",
+                height=200,
                 placeholder="Example: the woman is washing dishes . um . the boy is getting cookies ..."
             )
 
         st.markdown("### Cognitive Drift Score (Optional)")
-        use_cds   = st.checkbox("Patient has multiple sessions")
-        cds_value = 50.0
+        use_cds     = st.checkbox("Patient has multiple sessions")
+        cds_value   = 50.0
+        drift_label = "Stable"
+
         if use_cds:
             cds_value = st.slider("Cognitive Drift Score",0.0,100.0,50.0,0.5)
-            cds_label = (
-                "🟢 Improving"       if cds_value < 40 else
-                "🔵 Stable"          if cds_value < 55 else
-                "🟠 Gradual Decline" if cds_value < 70 else
-                "🔴 Rapid Decline"
+            drift_label = (
+                "Improving"       if cds_value < 40 else
+                "Stable"          if cds_value < 55 else
+                "Gradual Decline" if cds_value < 70 else
+                "Rapid Decline"
             )
-            st.info(f"**CDS: {cds_value:.1f}** — {cds_label}")
+            st.info(f"**CDS: {cds_value:.1f}** — {drift_label}")
 
         st.markdown("---")
         analyze = st.button("🔍 Analyze Cognitive State",
@@ -276,23 +227,30 @@ with tab1:
 
     with col_r:
         if analyze and transcript.strip():
-            with st.spinner("Analyzing speech biomarkers..."):
+            with st.spinner("Extracting speech biomarkers..."):
                 feats = extract_features(transcript)
 
             if feats is None:
                 st.error("Transcript too short. Please enter at least 3 sentences.")
             else:
-                pred, probs = rule_based_predict(feats)
-                conf = probs[pred]
+                feats["cds"] = cds_value
+                X      = np.array([[feats.get(f,0) for f in feat_cols]])
+                X_sc   = scaler.transform(X)
+                pred_e = model.predict(X_sc)[0]
+                probs  = model.predict_proba(X_sc)[0]
+                pred   = le.classes_[pred_e]
+                conf   = probs.max()
 
                 cls_emoji = {"AD":"🔴","Control":"🟢","MCI":"🟡"}
                 cls_full  = {
-                    "AD":"Alzheimer\'s Disease",
+                    "AD":"Alzheimer's Disease",
                     "Control":"Healthy Control",
                     "MCI":"Mild Cognitive Impairment"
                 }
                 text_color = {
-                    "AD":"#f87171","Control":"#4ade80","MCI":"#fbbf24"
+                    "AD":"#f87171",
+                    "Control":"#4ade80",
+                    "MCI":"#fbbf24"
                 }
                 bg_color = {
                     "AD":"rgba(239,68,68,0.08)",
@@ -306,38 +264,34 @@ with tab1:
                 }
 
                 st.markdown(f"""
-                <div style="background:{bg_color[pred]};
-                border:1px solid {border_color[pred]};
+                <div style="background:{bg_color[pred]};border:1px solid {border_color[pred]};
                 border-radius:16px;padding:1.5rem;margin-bottom:1rem">
-                <div style="font-size:0.7rem;color:#64748b;
-                text-transform:uppercase;letter-spacing:0.1em;
-                margin-bottom:0.5rem">Predicted Cognitive Stage</div>
-                <div style="display:flex;justify-content:space-between;
-                align-items:center">
+                <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase;
+                letter-spacing:0.1em;margin-bottom:0.5rem">Predicted Cognitive Stage</div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
                 <div>
-                <div style="font-size:2.2rem;font-weight:700;
-                color:{text_color[pred]}">{cls_emoji[pred]} {pred}</div>
-                <div style="font-size:0.85rem;color:#94a3b8;
-                margin-top:0.3rem">{cls_full[pred]}</div>
+                <div style="font-size:2.2rem;font-weight:700;color:{text_color[pred]};
+                font-family:JetBrains Mono,monospace">{cls_emoji[pred]} {pred}</div>
+                <div style="font-size:0.85rem;color:#94a3b8;margin-top:0.3rem">{cls_full[pred]}</div>
                 </div>
                 <div style="text-align:right">
-                <div style="font-size:2rem;font-weight:600;
-                color:#2dd4bf">{conf:.0%}</div>
-                <div style="font-size:0.7rem;color:#64748b;
-                text-transform:uppercase">Confidence</div>
+                <div style="font-size:2rem;font-weight:600;color:#2dd4bf;
+                font-family:JetBrains Mono,monospace">{conf:.0%}</div>
+                <div style="font-size:0.7rem;color:#64748b;text-transform:uppercase">Confidence</div>
                 </div>
                 </div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown("**Class Probabilities**")
-                for cls in ["AD","Control","MCI"]:
-                    prob = probs[cls]
+                for cls, prob in zip(le.classes_, probs):
+                    pct = prob*100
                     ca,cb,cc = st.columns([1,5,1])
                     ca.caption(cls)
-                    cb.progress(int(prob*100))
-                    cc.caption(f"{prob*100:.1f}%")
+                    cb.progress(int(pct))
+                    cc.caption(f"{pct:.1f}%")
 
+                st.markdown("**Cognitive Drift Score**")
                 cds_color = (
                     "#22c55e" if cds_value < 40 else
                     "#60a5fa" if cds_value < 55 else
@@ -350,40 +304,33 @@ with tab1:
                     "🟠 Gradual Decline" if cds_value < 70 else
                     "🔴 Rapid Decline"
                 )
-                st.markdown("**Cognitive Drift Score**")
                 st.markdown(f"""
-                <div style="background:rgba(15,23,42,0.6);
-                border:1px solid rgba(45,212,191,0.2);
+                <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(45,212,191,0.2);
                 border-radius:12px;padding:1rem;margin:0.5rem 0">
-                <div style="display:flex;justify-content:space-between;
-                align-items:center">
-                <div style="font-size:1.5rem;color:{cds_color};
-                font-weight:500">{cds_value:.1f}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                <div style="font-family:JetBrains Mono,monospace;font-size:1.5rem;
+                color:{cds_color};font-weight:500">{cds_value:.1f}</div>
                 <div style="font-size:0.9rem;color:#94a3b8">{cds_emoji}</div>
                 </div>
-                <div style="background:linear-gradient(90deg,
-                #22c55e 0%,#22c55e 35%,#fbbf24 55%,
-                #f97316 75%,#ef4444 100%);
-                border-radius:999px;height:8px;
-                margin-top:0.8rem;position:relative">
-                <div style="position:absolute;top:-5px;
-                left:{cds_value}%;transform:translateX(-50%);
-                width:18px;height:18px;background:white;
-                border-radius:50%;border:2px solid #0d1525;
+                <div style="background:linear-gradient(90deg,#22c55e 0%,#22c55e 35%,
+                #fbbf24 55%,#f97316 75%,#ef4444 100%);
+                border-radius:999px;height:8px;margin-top:0.8rem;position:relative">
+                <div style="position:absolute;top:-5px;left:{cds_value}%;
+                transform:translateX(-50%);width:18px;height:18px;
+                background:white;border-radius:50%;border:2px solid #0d1525;
                 box-shadow:0 0 8px rgba(45,212,191,0.8)"></div>
                 </div>
                 <div style="display:flex;justify-content:space-between;
                 font-size:0.65rem;color:#475569;margin-top:0.5rem">
-                <span>Improving</span><span>Stable</span>
-                <span>Decline</span><span>Rapid</span>
+                <span>Improving</span><span>Stable</span><span>Decline</span><span>Rapid</span>
                 </div>
                 </div>
                 """, unsafe_allow_html=True)
 
                 st.markdown("**Clinical Explanation**")
                 top_feats = sorted(
-                    [(f, abs(feats.get(f,0))) for f in FEAT_COLS],
-                    key=lambda x:x[1], reverse=True
+                    zip(feat_cols,[feats.get(f,0) for f in feat_cols]),
+                    key=lambda x:abs(x[1]),reverse=True
                 )[:4]
                 explanations = [
                     CLINICAL_MAP[pred][feat]
@@ -392,13 +339,12 @@ with tab1:
                 ]
                 for i,exp in enumerate(explanations[:3],1):
                     st.markdown(f"""
-                    <div style="display:flex;gap:0.75rem;
-                    padding:0.5rem 0;
+                    <div style="display:flex;gap:0.75rem;padding:0.5rem 0;
                     border-bottom:1px solid rgba(45,212,191,0.08)">
-                    <span style="background:rgba(45,212,191,0.1);
-                    color:#2dd4bf;font-size:0.7rem;
-                    padding:0.15rem 0.4rem;border-radius:4px;
-                    min-width:24px;text-align:center">{i:02d}</span>
+                    <span style="background:rgba(45,212,191,0.1);color:#2dd4bf;
+                    font-family:JetBrains Mono,monospace;font-size:0.7rem;
+                    padding:0.15rem 0.4rem;border-radius:4px;min-width:24px;
+                    text-align:center">{i:02d}</span>
                     <span style="font-size:0.85rem;color:#cbd5e1">{exp}</span>
                     </div>
                     """, unsafe_allow_html=True)
@@ -438,8 +384,7 @@ with tab1:
             <div style="font-size:3rem;margin-bottom:1rem">🧠</div>
             <div style="font-size:0.9rem;color:#475569;line-height:2">
             Enter a speech transcript on the left<br>
-            and click
-            <strong style="color:#2dd4bf">Analyze Cognitive State</strong>
+            and click <strong style="color:#2dd4bf">Analyze Cognitive State</strong>
             </div>
             </div>
             """, unsafe_allow_html=True)
@@ -460,21 +405,17 @@ with tab2:
         fig.patch.set_facecolor("#0d1525")
         ax.set_facecolor("#0d1525")
         bars = ax.bar(["AD","Control","MCI"],[0.97,0.71,0.68],
-                       color=["#ef4444","#22c55e","#fbbf24"],
-                       edgecolor="none",width=0.5)
-        ax.axhline(0.85,color="#2dd4bf",linestyle="--",
-                    linewidth=1.5,alpha=0.7,label="CV Mean 0.850")
+                       color=["#ef4444","#22c55e","#fbbf24"],edgecolor="none",width=0.5)
+        ax.axhline(0.85,color="#2dd4bf",linestyle="--",linewidth=1.5,alpha=0.7,label="CV Mean 0.850")
         ax.set_ylim(0,1.15)
         ax.set_ylabel("F1 Score",color="#64748b",fontsize=10)
         ax.tick_params(colors="#64748b",labelsize=10)
         for s in ["top","right"]: ax.spines[s].set_visible(False)
         for s in ["left","bottom"]: ax.spines[s].set_color("#1e293b")
-        ax.legend(fontsize=9,labelcolor="#94a3b8",
-                   facecolor="#0d1525",edgecolor="#1e293b")
+        ax.legend(fontsize=9,labelcolor="#94a3b8",facecolor="#0d1525",edgecolor="#1e293b")
         for bar,val in zip(bars,[0.97,0.71,0.68]):
-            ax.text(bar.get_x()+bar.get_width()/2,
-                    bar.get_height()+0.02,f"{val:.2f}",
-                    ha="center",color="white",fontsize=10,fontweight="bold")
+            ax.text(bar.get_x()+bar.get_width()/2,bar.get_height()+0.02,
+                    f"{val:.2f}",ha="center",color="white",fontsize=10,fontweight="bold")
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
@@ -485,21 +426,17 @@ with tab2:
         fig2.patch.set_facecolor("#0d1525")
         ax2.set_facecolor("#0d1525")
         bars2 = ax2.bar(["AD","Control","MCI"],[1.000,0.892,0.892],
-                         color=["#ef4444","#22c55e","#fbbf24"],
-                         edgecolor="none",width=0.5)
-        ax2.axhline(0.9,color="#2dd4bf",linestyle="--",
-                     linewidth=1.5,alpha=0.7,label="Excellent 0.90")
+                         color=["#ef4444","#22c55e","#fbbf24"],edgecolor="none",width=0.5)
+        ax2.axhline(0.9,color="#2dd4bf",linestyle="--",linewidth=1.5,alpha=0.7,label="Excellent 0.90")
         ax2.set_ylim(0.5,1.1)
         ax2.set_ylabel("AUC",color="#64748b",fontsize=10)
         ax2.tick_params(colors="#64748b",labelsize=10)
         for s in ["top","right"]: ax2.spines[s].set_visible(False)
         for s in ["left","bottom"]: ax2.spines[s].set_color("#1e293b")
-        ax2.legend(fontsize=9,labelcolor="#94a3b8",
-                    facecolor="#0d1525",edgecolor="#1e293b")
+        ax2.legend(fontsize=9,labelcolor="#94a3b8",facecolor="#0d1525",edgecolor="#1e293b")
         for bar,val in zip(bars2,[1.000,0.892,0.892]):
-            ax2.text(bar.get_x()+bar.get_width()/2,
-                    bar.get_height()+0.01,f"{val:.3f}",
-                    ha="center",color="white",fontsize=10,fontweight="bold")
+            ax2.text(bar.get_x()+bar.get_width()/2,bar.get_height()+0.01,
+                    f"{val:.3f}",ha="center",color="white",fontsize=10,fontweight="bold")
         plt.tight_layout()
         st.pyplot(fig2)
         plt.close()
@@ -515,10 +452,10 @@ with tab2:
 with tab3:
     st.markdown("### About CogniScan AI")
     st.markdown("""
-    CogniScan AI is a research prototype for explainable three-stage cognitive
-    decline detection using speech and linguistic biomarkers. The system analyzes
-    spontaneous speech from the **Cookie Theft** picture description task and
-    classifies patients into three cognitive stages.
+    CogniScan AI is a research prototype for explainable three-stage cognitive decline
+    detection using speech and linguistic biomarkers. The system analyzes spontaneous
+    speech from the **Cookie Theft** picture description task and classifies patients into
+    three cognitive stages: Healthy Control, MCI, and Alzheimer's Disease.
     """)
     st.divider()
     st.markdown("### Three Core Novelties")
@@ -544,4 +481,4 @@ with tab3:
         st.markdown("- 16 multimodal features")
         st.markdown("- 10 linguistic · 5 acoustic · 1 CDS")
     st.divider()
-    st.error("**Disclaimer:** Research prototype only. Not for clinical diagnosis.")
+    st.error("**⚠️ Disclaimer:** Research prototype only. Not intended for clinical diagnosis.")
