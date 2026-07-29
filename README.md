@@ -1,4 +1,4 @@
-# 🧠 CogniScan AI
+#  CogniScan AI
 ## Explainable Multimodal AI for Three-Stage Cognitive Decline Detection
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://cogniscan-ai-anushya.streamlit.app)
@@ -23,6 +23,6 @@
 - 691 patients | Cookie Theft picture description task
 
 ## Live Demo
-👉 https://cogniscan-ai-anushya.streamlit.app
+ https://cogniscan-ai-anushya.streamlit.app
 
 ## Repository Structure
