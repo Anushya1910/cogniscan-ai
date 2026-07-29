@@ -397,7 +397,7 @@ with tab1:
                 """, unsafe_allow_html=True)
 
                 st.markdown("**Class Probabilities**")
-                prob_dict = {cls:prob for cls,prob in zip(le.classes_,probs)}
+                prob_dict = {cls:prob for cls,prob in zip(["AD","Control","MCI"],probs)}
                 for cls in ["AD","Control","MCI"]:
                     prob = prob_dict[cls]
                     ca,cb,cc = st.columns([1,5,1])
