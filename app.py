@@ -1,14 +1,18 @@
+app_path = '/content/drive/MyDrive/Dementia_Project/streamlit_app/app.py'
 
+app_code = r'''
 import streamlit as st
 import numpy as np
 import re
 import json
 import joblib
+import os
 import matplotlib.pyplot as plt
 from collections import Counter
 import nltk
 nltk.download("stopwords", quiet=True)
 from nltk.corpus import stopwords as nltk_stopwords
+from pathlib import Path
 
 st.set_page_config(
     page_title="CogniScan AI",
@@ -25,12 +29,10 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif;}
 .stTabs [data-baseweb="tab-list"]{background:rgba(15,23,42,0.8);border-radius:12px;padding:4px;}
 .stTabs [data-baseweb="tab"]{color:#64748b;border-radius:8px;}
 .stTabs [aria-selected="true"]{background:rgba(45,212,191,0.15);color:#2dd4bf;}
-.stButton>button{background:linear-gradient(90deg,#0d9488,#0284c7);color:white;border:none;border-radius:10px;font-weight:500;padding:0.6rem 1.2rem;}
-.stButton>button:hover{background:linear-gradient(90deg,#0f766e,#0369a1);transform:translateY(-1px);}
+.stButton>button{background:linear-gradient(90deg,#0d9488,#0284c7);color:white;border:none;border-radius:10px;font-weight:500;}
+.stButton>button:hover{background:linear-gradient(90deg,#0f766e,#0369a1);}
 .stTextArea textarea{background:rgba(15,23,42,0.8);border:1px solid rgba(45,212,191,0.2);border-radius:12px;color:#e2e8f0;}
 .stSelectbox>div>div{background:rgba(15,23,42,0.8);border:1px solid rgba(45,212,191,0.2);color:#e2e8f0;}
-.stSlider>div{color:#2dd4bf;}
-.stCheckbox>label{color:#94a3b8;}
 section[data-testid="stSidebar"]{background:rgba(10,14,26,0.98)!important;border-right:1px solid rgba(45,212,191,0.15)!important;}
 #MainMenu,footer,header{visibility:hidden;}
 .block-container{padding-top:1rem;}
@@ -134,11 +136,12 @@ def extract_features(transcript):
 
 @st.cache_resource
 def load_model():
-    base   = "/content/drive/MyDrive/Dementia_Project/models"
-    model  = joblib.load(f"{base}/FINAL_model.pkl")
-    scaler = joblib.load(f"{base}/FINAL_scaler.pkl")
-    le     = joblib.load(f"{base}/FINAL_le.pkl")
-    with open(f"{base}/FINAL_features.json") as f:
+    # Get the directory where app.py lives
+    base = Path(__file__).parent / "models"
+    model  = joblib.load(base / "FINAL_model.pkl")
+    scaler = joblib.load(base / "FINAL_scaler.pkl")
+    le     = joblib.load(base / "FINAL_le.pkl")
+    with open(base / "FINAL_features.json") as f:
         feat_cols = json.load(f)
     return model, scaler, le, feat_cols
 
@@ -165,14 +168,12 @@ with st.sidebar:
     st.markdown("## 🧠 CogniScan AI")
     st.caption("VERSION 1.0 · RESEARCH PROTOTYPE")
     st.divider()
-
     col1,col2 = st.columns(2)
     col1.metric("Patients","691")
     col2.metric("Features","16")
     col3,col4 = st.columns(2)
     col3.metric("CV F1","0.850")
     col4.metric("AUC","0.947")
-
     st.divider()
     st.markdown("**Novelties**")
     st.markdown("🎯 Three-stage classification")
@@ -188,23 +189,18 @@ with st.sidebar:
 # ── TABS ───────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["🔍 Analyze Speech","📊 Model Performance","ℹ️ About"])
 
-# ══════════════════════════════════════════════════════
-# TAB 1
-# ══════════════════════════════════════════════════════
 with tab1:
     col_l, col_r = st.columns([1.1,1], gap="large")
 
     with col_l:
         st.markdown("### Input Transcript")
-
         use_sample = st.checkbox("Use a sample patient transcript")
         transcript = ""
 
         if use_sample:
             sample_key = st.selectbox("Choose sample", list(SAMPLES.keys()))
             transcript = SAMPLES[sample_key]
-            st.text_area("Sample transcript (read-only)",
-                          value=transcript, height=200, disabled=True)
+            st.text_area("Sample transcript",value=transcript,height=200,disabled=True)
         else:
             transcript = st.text_area(
                 "Paste speech transcript here",
@@ -213,17 +209,17 @@ with tab1:
             )
 
         st.markdown("### Cognitive Drift Score (Optional)")
-        use_cds   = st.checkbox("Patient has multiple sessions — add CDS")
-        cds_value = 50.0
+        use_cds     = st.checkbox("Patient has multiple sessions")
+        cds_value   = 50.0
         drift_label = "Stable"
 
         if use_cds:
             cds_value = st.slider("Cognitive Drift Score",0.0,100.0,50.0,0.5)
             drift_label = (
-                "🟢 Improving"       if cds_value < 40 else
-                "🔵 Stable"          if cds_value < 55 else
-                "🟠 Gradual Decline" if cds_value < 70 else
-                "🔴 Rapid Decline"
+                "Improving"       if cds_value < 40 else
+                "Stable"          if cds_value < 55 else
+                "Gradual Decline" if cds_value < 70 else
+                "Rapid Decline"
             )
             st.info(f"**CDS: {cds_value:.1f}** — {drift_label}")
 
@@ -247,29 +243,28 @@ with tab1:
                 pred   = le.classes_[pred_e]
                 conf   = probs.max()
 
-                cls_color = {"AD":"🔴","Control":"🟢","MCI":"🟡"}
+                cls_emoji = {"AD":"🔴","Control":"🟢","MCI":"🟡"}
                 cls_full  = {
                     "AD":"Alzheimer's Disease",
                     "Control":"Healthy Control",
                     "MCI":"Mild Cognitive Impairment"
-                }
-                bg_color = {
-                    "AD":"rgba(239,68,68,0.1)",
-                    "Control":"rgba(34,197,94,0.1)",
-                    "MCI":"rgba(251,191,36,0.1)"
-                }
-                border_color = {
-                    "AD":"rgba(239,68,68,0.4)",
-                    "Control":"rgba(34,197,94,0.4)",
-                    "MCI":"rgba(251,191,36,0.4)"
                 }
                 text_color = {
                     "AD":"#f87171",
                     "Control":"#4ade80",
                     "MCI":"#fbbf24"
                 }
+                bg_color = {
+                    "AD":"rgba(239,68,68,0.08)",
+                    "Control":"rgba(34,197,94,0.08)",
+                    "MCI":"rgba(251,191,36,0.08)"
+                }
+                border_color = {
+                    "AD":"rgba(239,68,68,0.35)",
+                    "Control":"rgba(34,197,94,0.35)",
+                    "MCI":"rgba(251,191,36,0.35)"
+                }
 
-                # Stage result card
                 st.markdown(f"""
                 <div style="background:{bg_color[pred]};border:1px solid {border_color[pred]};
                 border-radius:16px;padding:1.5rem;margin-bottom:1rem">
@@ -278,7 +273,7 @@ with tab1:
                 <div style="display:flex;justify-content:space-between;align-items:center">
                 <div>
                 <div style="font-size:2.2rem;font-weight:700;color:{text_color[pred]};
-                font-family:JetBrains Mono,monospace">{cls_color[pred]} {pred}</div>
+                font-family:JetBrains Mono,monospace">{cls_emoji[pred]} {pred}</div>
                 <div style="font-size:0.85rem;color:#94a3b8;margin-top:0.3rem">{cls_full[pred]}</div>
                 </div>
                 <div style="text-align:right">
@@ -290,19 +285,22 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Probabilities
                 st.markdown("**Class Probabilities**")
-                prob_col = {"AD":"#ef4444","Control":"#22c55e","MCI":"#fbbf24"}
                 for cls, prob in zip(le.classes_, probs):
                     pct = prob*100
-                    col_a, col_b, col_c = st.columns([1,5,1])
-                    col_a.caption(cls)
-                    col_b.progress(int(pct))
-                    col_c.caption(f"{pct:.1f}%")
+                    ca,cb,cc = st.columns([1,5,1])
+                    ca.caption(cls)
+                    cb.progress(int(pct))
+                    cc.caption(f"{pct:.1f}%")
 
-                # CDS
                 st.markdown("**Cognitive Drift Score**")
-                cds_label = (
+                cds_color = (
+                    "#22c55e" if cds_value < 40 else
+                    "#60a5fa" if cds_value < 55 else
+                    "#f97316" if cds_value < 70 else
+                    "#ef4444"
+                )
+                cds_emoji = (
                     "🟢 Improving"       if cds_value < 40 else
                     "🔵 Stable"          if cds_value < 55 else
                     "🟠 Gradual Decline" if cds_value < 70 else
@@ -312,10 +310,12 @@ with tab1:
                 <div style="background:rgba(15,23,42,0.6);border:1px solid rgba(45,212,191,0.2);
                 border-radius:12px;padding:1rem;margin:0.5rem 0">
                 <div style="display:flex;justify-content:space-between;align-items:center">
-                <div style="font-family:JetBrains Mono,monospace;font-size:1.5rem;color:#2dd4bf;font-weight:500">{cds_value:.1f}</div>
-                <div style="font-size:0.9rem;color:#94a3b8">{cds_label}</div>
+                <div style="font-family:JetBrains Mono,monospace;font-size:1.5rem;
+                color:{cds_color};font-weight:500">{cds_value:.1f}</div>
+                <div style="font-size:0.9rem;color:#94a3b8">{cds_emoji}</div>
                 </div>
-                <div style="background:linear-gradient(90deg,#22c55e 0%,#22c55e 35%,#fbbf24 55%,#f97316 75%,#ef4444 100%);
+                <div style="background:linear-gradient(90deg,#22c55e 0%,#22c55e 35%,
+                #fbbf24 55%,#f97316 75%,#ef4444 100%);
                 border-radius:999px;height:8px;margin-top:0.8rem;position:relative">
                 <div style="position:absolute;top:-5px;left:{cds_value}%;
                 transform:translateX(-50%);width:18px;height:18px;
@@ -329,7 +329,6 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Clinical explanation
                 st.markdown("**Clinical Explanation**")
                 top_feats = sorted(
                     zip(feat_cols,[feats.get(f,0) for f in feat_cols]),
@@ -363,10 +362,9 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Biomarkers
                 st.markdown("**Extracted Biomarkers**")
                 display_feats = {
-                    "mattr":("Vocabulary Diversity (MATTR)",0,1),
+                    "mattr":("Vocabulary Diversity",0,1),
                     "avg_sent_len":("Avg Sentence Length",0,20),
                     "repetition_ratio":("Repetition Ratio",0,0.5),
                     "filler_ratio":("Filler Word Ratio",0,0.1),
@@ -375,16 +373,16 @@ with tab1:
                 for feat,(label,fmin,fmax) in display_feats.items():
                     val = feats.get(feat,0)
                     pct = int(min(100,max(0,(val-fmin)/(fmax-fmin)*100)))
-                    col_a,col_b,col_c = st.columns([3,4,2])
-                    col_a.caption(label)
-                    col_b.progress(pct)
-                    col_c.caption(f"{val:.3f}")
+                    ca,cb,cc = st.columns([3,4,2])
+                    ca.caption(label)
+                    cb.progress(pct)
+                    cc.caption(f"{val:.3f}")
 
         elif analyze:
             st.warning("Please enter a transcript first.")
         else:
             st.markdown("""
-            <div style="text-align:center;padding:3rem 1rem;color:#334155">
+            <div style="text-align:center;padding:3rem 1rem">
             <div style="font-size:3rem;margin-bottom:1rem">🧠</div>
             <div style="font-size:0.9rem;color:#475569;line-height:2">
             Enter a speech transcript on the left<br>
@@ -393,30 +391,23 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════
-# TAB 2
-# ══════════════════════════════════════════════════════
 with tab2:
     st.markdown("### Model Performance")
-
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("CV F1","0.850","5-fold weighted")
     c2.metric("Test Accuracy","78.9%","Test set")
     c3.metric("Micro AUC","0.947","ROC curve")
     c4.metric("MCI F1","0.68","Hardest class")
-
     st.divider()
-    col1,col2 = st.columns(2)
 
+    col1,col2 = st.columns(2)
     with col1:
         st.markdown("#### F1 Score Per Class")
         fig,ax = plt.subplots(figsize=(5,3.5))
         fig.patch.set_facecolor("#0d1525")
         ax.set_facecolor("#0d1525")
-        cls   = ["AD","Control","MCI"]
-        f1s   = [0.97,0.71,0.68]
-        cols  = ["#ef4444","#22c55e","#fbbf24"]
-        bars  = ax.bar(cls,f1s,color=cols,edgecolor="none",width=0.5)
+        bars = ax.bar(["AD","Control","MCI"],[0.97,0.71,0.68],
+                       color=["#ef4444","#22c55e","#fbbf24"],edgecolor="none",width=0.5)
         ax.axhline(0.85,color="#2dd4bf",linestyle="--",linewidth=1.5,alpha=0.7,label="CV Mean 0.850")
         ax.set_ylim(0,1.15)
         ax.set_ylabel("F1 Score",color="#64748b",fontsize=10)
@@ -424,7 +415,7 @@ with tab2:
         for s in ["top","right"]: ax.spines[s].set_visible(False)
         for s in ["left","bottom"]: ax.spines[s].set_color("#1e293b")
         ax.legend(fontsize=9,labelcolor="#94a3b8",facecolor="#0d1525",edgecolor="#1e293b")
-        for bar,val in zip(bars,f1s):
+        for bar,val in zip(bars,[0.97,0.71,0.68]):
             ax.text(bar.get_x()+bar.get_width()/2,bar.get_height()+0.02,
                     f"{val:.2f}",ha="center",color="white",fontsize=10,fontweight="bold")
         plt.tight_layout()
@@ -436,8 +427,8 @@ with tab2:
         fig2,ax2 = plt.subplots(figsize=(5,3.5))
         fig2.patch.set_facecolor("#0d1525")
         ax2.set_facecolor("#0d1525")
-        aucs  = [1.000,0.892,0.892]
-        bars2 = ax2.bar(cls,aucs,color=cols,edgecolor="none",width=0.5)
+        bars2 = ax2.bar(["AD","Control","MCI"],[1.000,0.892,0.892],
+                         color=["#ef4444","#22c55e","#fbbf24"],edgecolor="none",width=0.5)
         ax2.axhline(0.9,color="#2dd4bf",linestyle="--",linewidth=1.5,alpha=0.7,label="Excellent 0.90")
         ax2.set_ylim(0.5,1.1)
         ax2.set_ylabel("AUC",color="#64748b",fontsize=10)
@@ -445,7 +436,7 @@ with tab2:
         for s in ["top","right"]: ax2.spines[s].set_visible(False)
         for s in ["left","bottom"]: ax2.spines[s].set_color("#1e293b")
         ax2.legend(fontsize=9,labelcolor="#94a3b8",facecolor="#0d1525",edgecolor="#1e293b")
-        for bar,val in zip(bars2,aucs):
+        for bar,val in zip(bars2,[1.000,0.892,0.892]):
             ax2.text(bar.get_x()+bar.get_width()/2,bar.get_height()+0.01,
                     f"{val:.3f}",ha="center",color="white",fontsize=10,fontweight="bold")
         plt.tight_layout()
@@ -453,16 +444,13 @@ with tab2:
         plt.close()
 
     st.divider()
-    st.markdown("#### Cognitive Drift Score — Class Summary")
+    st.markdown("#### Cognitive Drift Score Summary")
     d1,d2,d3,d4 = st.columns(4)
-    d1.metric("AD Mean CDS","57.0","Gradual → Rapid Decline",delta_color="inverse")
-    d2.metric("MCI Mean CDS","53.4","Subtle decline")
-    d3.metric("Control Mean CDS","48.7","Stable → Improving",delta_color="normal")
-    d4.metric("Patients Scored","195","Multi-session longitudinal")
+    d1.metric("AD Mean CDS","57.0","Declining",delta_color="inverse")
+    d2.metric("MCI Mean CDS","53.4","Subtle")
+    d3.metric("Control Mean CDS","48.7","Stable")
+    d4.metric("Patients Scored","195","Longitudinal")
 
-# ══════════════════════════════════════════════════════
-# TAB 3
-# ══════════════════════════════════════════════════════
 with tab3:
     st.markdown("### About CogniScan AI")
     st.markdown("""
@@ -471,17 +459,15 @@ with tab3:
     speech from the **Cookie Theft** picture description task and classifies patients into
     three cognitive stages: Healthy Control, MCI, and Alzheimer's Disease.
     """)
-
     st.divider()
     st.markdown("### Three Core Novelties")
     col1,col2,col3 = st.columns(3)
     with col1:
-        st.success("**🎯 Three-Stage Detection**\n\nClassifies Healthy, MCI, and AD — catching the critical MCI stage that binary systems miss entirely.")
+        st.success("**🎯 Three-Stage Detection**\n\nClassifies Healthy, MCI, and AD catching the critical MCI stage that binary systems miss.")
     with col2:
         st.warning("**🔍 Dual-Layer XAI**\n\nSHAP global feature importance combined with patient-level natural language clinical explanation.")
     with col3:
-        st.error("**📈 Cognitive Drift Score**\n\nLongitudinal biomarker tracking across sessions revealing decline velocity on public datasets.")
-
+        st.error("**📈 Cognitive Drift Score**\n\nLongitudinal biomarker tracking across sessions revealing decline velocity.")
     st.divider()
     col_a,col_b = st.columns(2)
     with col_a:
@@ -496,6 +482,13 @@ with tab3:
         st.markdown("- Soft voting ensemble")
         st.markdown("- 16 multimodal features")
         st.markdown("- 10 linguistic · 5 acoustic · 1 CDS")
-
     st.divider()
-    st.error("**⚠️ Disclaimer:** Research prototype only. Not intended for clinical diagnosis or medical decision-making. Always consult a qualified healthcare professional.")
+    st.error("**⚠️ Disclaimer:** Research prototype only. Not intended for clinical diagnosis.")
+'''
+
+with open(app_path, 'w', encoding='utf-8') as f:
+    f.write(app_code)
+
+print("✅ app.py fully rewritten")
+print("✅ Path fixed using Path(__file__).parent / 'models'")
+print("\nNow download this app.py and upload to GitHub replacing the old one")
