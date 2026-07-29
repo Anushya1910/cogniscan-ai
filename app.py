@@ -1,6 +1,3 @@
-app_path = '/content/drive/MyDrive/Dementia_Project/streamlit_app/app.py'
-
-app_code = r'''
 import streamlit as st
 import numpy as np
 import re
@@ -484,11 +481,3 @@ with tab3:
         st.markdown("- 10 linguistic · 5 acoustic · 1 CDS")
     st.divider()
     st.error("**⚠️ Disclaimer:** Research prototype only. Not intended for clinical diagnosis.")
-'''
-
-with open(app_path, 'w', encoding='utf-8') as f:
-    f.write(app_code)
-
-print("✅ app.py fully rewritten")
-print("✅ Path fixed using Path(__file__).parent / 'models'")
-print("\nNow download this app.py and upload to GitHub replacing the old one")
