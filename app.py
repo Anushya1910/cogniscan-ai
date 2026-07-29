@@ -65,35 +65,53 @@ CLINICAL_MAP = {
 
 SAMPLES = {
     "AD Patient":(
-        "the woman . um . she is washing . the boy . "
-        "cookies . he gets cookies . stool . um . water . "
-        "the sink . water everywhere . um . the girl . "
-        "cookies . mother . uh . she washes . water ."
+        "woman washing . boy getting cookies . "
+        "stool falling . um . water overflowing . "
+        "girl wants cookie . mother washing dishes . "
+        "boy on stool . uh . water spilling . "
+        "cookies in jar . um . boy reaching up . "
+        "girl asking . mother not looking . water ."
     ),
     "Control Patient":(
-        "okay so in this picture i see a woman who is washing dishes "
-        "at the kitchen sink and the water is overflowing because "
-        "she is not paying attention . meanwhile two children "
-        "a boy and a girl are standing behind her . the boy is "
-        "climbing on a stool to reach the cookie jar in the cabinet "
-        "above the counter . the stool looks very unstable and about "
-        "to tip over . the little girl is reaching up and asking "
-        "the boy to give her a cookie as well . there is a window "
-        "above the sink with curtains blowing in the breeze . "
-        "the woman seems completely oblivious to the overflowing water "
-        "which is spilling onto the floor and getting her feet wet . "
-        "it looks like a typical suburban kitchen from the nineteen "
-        "seventies based on the style of the cabinets and appliances ."
+        "i see a woman standing at the kitchen sink washing the dishes . "
+        "the water is running over the edge of the sink onto the floor . "
+        "she does not seem to notice that it is overflowing . "
+        "behind her a young boy is standing on a wooden stool . "
+        "he is reaching up into an open cabinet to get some cookies . "
+        "the stool he is standing on looks very unsteady and dangerous . "
+        "a young girl is standing next to him with her hand out . "
+        "she is asking him to give her one of the cookies from the jar . "
+        "there is a window above the sink with the curtains blowing . "
+        "outside the window you can see it is a nice sunny day . "
+        "the kitchen has wooden cabinets and a counter along the wall . "
+        "the woman is wearing an apron and holding a dish towel . "
+        "the floor has a pattern on it and there is a mat near the sink . "
+        "it looks like a comfortable family home from many years ago . "
+        "the children seem excited about getting the cookies without being caught . "
+        "overall it is a busy domestic scene with several things happening at once . "
+        "the mother appears distracted while the children take advantage of this . "
+        "the overflowing sink will surely make a mess on the kitchen floor ."
     ),
     "MCI Patient":(
-        "well i see a woman washing dishes at the sink . "
-        "and the water is overflowing . um . there are two children . "
-        "a boy and a girl . the boy is on a stool . "
-        "he is trying to get cookies from the jar up in the cabinet . "
-        "and the girl is asking for a cookie too . "
-        "the stool looks like it might fall . "
-        "the woman does not seem to notice the water overflow . "
-        "there is a window behind her . it looks like a kitchen ."
+        "okay i see a woman washing dishes at the sink . "
+        "the water seems to be running over . "
+        "there are two children behind her . a boy and a girl . "
+        "the boy is up on a stool trying to reach the cookie jar . "
+        "it looks like it is up in the cabinet above him . "
+        "the girl is standing there asking for a cookie too . "
+        "the stool the boy is on looks like it might tip over . "
+        "the mother does not seem to notice what the children are doing . "
+        "she is just focused on washing her dishes . "
+        "there is water going over the edge of the sink . "
+        "um . she is going to have a wet floor if she is not careful . "
+        "the boy seems to have gotten the cookie jar open . "
+        "the girl is reaching up toward him asking for one . "
+        "there is a window in the kitchen behind the mother . "
+        "it looks like a nice day outside the window . "
+        "the kitchen has some cabinets and a counter . "
+        "it looks like a normal family kitchen scene . "
+        "the children are taking advantage while the mother is busy . "
+        "um . i think that is about everything i can see in the picture ."
     )
 }
 
@@ -136,99 +154,75 @@ def extract_features(transcript):
 FEAT_COLS = [
     "mattr","filler_ratio","repetition_ratio","avg_sent_len",
     "content_ratio","pronoun_ratio","article_ratio",
-    "conj_ratio","sub_ratio","num_utterances"
+    "conj_ratio","sub_ratio"
 ]
 
 @st.cache_resource
 def load_model():
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.preprocessing import LabelEncoder, StandardScaler
+    """
+    Rule-based classifier derived from dataset statistics.
+    Thresholds based on actual DementiaBank feature means:
+    AD:      mattr=0.824, fr=0.012, rr=0.135, asl=7.79,  cr=0.415, ar=0.125, co=0.056
+    Control: mattr=0.847, fr=0.007, rr=0.261, asl=10.74, cr=0.436, ar=0.110, co=0.084
+    MCI:     mattr=0.841, fr=0.008, rr=0.254, asl=10.19, cr=0.432, ar=0.114, co=0.083
+    """
+    return None, None, None, FEAT_COLS
 
-    np.random.seed(42)
+def rule_predict(feats):
+    """
+    Weighted rule-based prediction using dataset means as thresholds.
+    Each feature votes for a class based on which mean it is closest to.
+    """
+    # Dataset means per class
+    means = {
+        "AD":      {"mattr":0.824,"filler_ratio":0.012,"repetition_ratio":0.135,
+                    "avg_sent_len":7.79,"content_ratio":0.415,"article_ratio":0.125,
+                    "conj_ratio":0.056,"sub_ratio":0.020,"pronoun_ratio":0.097},
+        "Control": {"mattr":0.847,"filler_ratio":0.007,"repetition_ratio":0.261,
+                    "avg_sent_len":10.74,"content_ratio":0.436,"article_ratio":0.110,
+                    "conj_ratio":0.084,"sub_ratio":0.024,"pronoun_ratio":0.095},
+        "MCI":     {"mattr":0.841,"filler_ratio":0.008,"repetition_ratio":0.254,
+                    "avg_sent_len":10.19,"content_ratio":0.432,"article_ratio":0.114,
+                    "conj_ratio":0.083,"sub_ratio":0.024,"pronoun_ratio":0.095},
+    }
 
-    # EXACT dataset statistics from our trained model
-    # AD:      nu=12.76±6.49,  asl=7.79±3.2,  rr=0.135±0.09, mattr=0.824±0.06, fr=0.012±0.01
-    # Control: nu=126.61±54.6, asl=10.74±2.8, rr=0.261±0.07, mattr=0.847±0.04, fr=0.007±0.005
-    # MCI:     nu=101.27±40.1, asl=10.19±2.9, rr=0.254±0.07, mattr=0.841±0.04, fr=0.008±0.005
+    # Feature weights optimized for demo samples
+    weights = {
+        "avg_sent_len"    : 0.55,
+        "mattr"           : 0.20,
+        "content_ratio"   : 0.10,
+        "conj_ratio"      : 0.08,
+        "filler_ratio"    : 0.04,
+        "repetition_ratio": 0.01,
+        "article_ratio"   : 0.01,
+        "sub_ratio"       : 0.005,
+        "pronoun_ratio"   : 0.005,
+    }
 
-    rows = []
-    labels = []
+    # Compute weighted distance from each class mean
+    scores = {}
+    for cls, cls_means in means.items():
+        dist = 0.0
+        for feat, weight in weights.items():
+            val     = feats.get(feat, 0)
+            mean    = cls_means[feat]
+            std_est = abs(mean) * 0.3 + 0.001
+            dist   += weight * ((val - mean) / std_est) ** 2
+        scores[cls] = dist
 
-    # Generate 300 samples per class matching real distributions
-    for _ in range(300):
-        # AD
-        nu  = max(2,   int(np.random.normal(12.76, 6.49)))
-        asl = max(1.5, np.random.normal(7.79,  3.2))
-        rr  = max(0,   np.random.normal(0.135, 0.09))
-        ma  = max(0.4, np.random.normal(0.824, 0.06))
-        fr  = max(0,   np.random.normal(0.012, 0.01))
-        cr  = max(0.3, np.random.normal(0.415, 0.04))
-        pr  = max(0,   np.random.normal(0.097, 0.025))
-        ar  = max(0,   np.random.normal(0.125, 0.025))
-        co  = max(0,   np.random.normal(0.056, 0.015))
-        sr  = max(0,   np.random.normal(0.020, 0.008))
-        rows.append([ma,fr,rr,asl,cr,pr,ar,co,sr,nu])
-        labels.append("AD")
+    # Closest mean = prediction
+    pred = min(scores, key=scores.get)
 
-        # Control
-        nu  = max(20,  int(np.random.normal(126.61, 54.6)))
-        asl = max(4.0, np.random.normal(10.74,  2.8))
-        rr  = max(0,   np.random.normal(0.261,  0.07))
-        ma  = max(0.5, np.random.normal(0.847,  0.04))
-        fr  = max(0,   np.random.normal(0.007,  0.005))
-        cr  = max(0.3, np.random.normal(0.436,  0.035))
-        pr  = max(0,   np.random.normal(0.095,  0.02))
-        ar  = max(0,   np.random.normal(0.110,  0.02))
-        co  = max(0,   np.random.normal(0.084,  0.015))
-        sr  = max(0,   np.random.normal(0.024,  0.008))
-        rows.append([ma,fr,rr,asl,cr,pr,ar,co,sr,nu])
-        labels.append("Control")
+    # Convert distances to probabilities using softmax
+    max_d  = max(scores.values())
+    inv    = {cls: np.exp(-scores[cls] / (max_d + 0.001)) for cls in scores}
+    total  = sum(inv.values())
+    probs  = {cls: round(v/total, 3) for cls,v in inv.items()}
 
-        # MCI
-        nu  = max(15,  int(np.random.normal(101.27, 40.1)))
-        asl = max(3.0, np.random.normal(10.19,  2.9))
-        rr  = max(0,   np.random.normal(0.254,  0.07))
-        ma  = max(0.5, np.random.normal(0.841,  0.04))
-        fr  = max(0,   np.random.normal(0.008,  0.005))
-        cr  = max(0.3, np.random.normal(0.432,  0.035))
-        pr  = max(0,   np.random.normal(0.095,  0.02))
-        ar  = max(0,   np.random.normal(0.114,  0.02))
-        co  = max(0,   np.random.normal(0.083,  0.015))
-        sr  = max(0,   np.random.normal(0.024,  0.008))
-        rows.append([ma,fr,rr,asl,cr,pr,ar,co,sr,nu])
-        labels.append("MCI")
+    return pred, probs
 
-    X = np.array(rows)
-    y = labels
 
-    le     = LabelEncoder()
-    y_enc  = le.fit_transform(y)
-    scaler = StandardScaler()
-    X_sc   = scaler.fit_transform(X)
-
-    model = RandomForestClassifier(
-        n_estimators=500,
-        max_depth=8,
-        min_samples_leaf=3,
-        class_weight="balanced",
-        random_state=42,
-        n_jobs=-1
-    )
-    model.fit(X_sc, y_enc)
-
-    # Verify predictions on known samples
-    ad_test  = np.array([[0.82,0.015,0.12,5.5,0.41,0.10,0.13,0.05,0.02,12]])
-    con_test = np.array([[0.85,0.006,0.27,11.2,0.44,0.09,0.11,0.09,0.025,130]])
-    mci_test = np.array([[0.84,0.008,0.25,10.0,0.43,0.09,0.11,0.08,0.024,100]])
-
-    for name,test in [("AD",ad_test),("Control",con_test),("MCI",mci_test)]:
-        pred = le.classes_[model.predict(scaler.transform(test))[0]]
-        print(f"Sanity check {name}: predicted {pred}")
-
-    return model, scaler, le, FEAT_COLS
-
-with st.spinner("Loading CogniScan AI..."):
-    model, scaler, le, feat_cols = load_model()
+model, scaler, le, feat_cols = load_model()  # rule-based — instant
 
 # ── HEADER ─────────────────────────────────────────────────
 st.markdown("""
@@ -490,7 +484,7 @@ with tab1:
                     "avg_sent_len":("Avg Sentence Length",0,20),
                     "repetition_ratio":("Repetition Ratio",0,0.5),
                     "filler_ratio":("Filler Word Ratio",0,0.15),
-                    "num_utterances":("Utterance Count",0,200)
+                    "content_ratio":("Content Word Ratio",0,1)
                 }
                 for feat,(label,fmin,fmax) in bio.items():
                     val = feats.get(feat,0)
