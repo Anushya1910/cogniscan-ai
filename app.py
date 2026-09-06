@@ -612,16 +612,38 @@ if analyse:
             sv_raw    = explainer.shap_values(
                 feat_scaled)
             sv_arr    = np.array(sv_raw)
-            if sv_arr.ndim==3:
-                if sv_arr.shape[2]==3:
-                    shap_vals=sv_arr[0,:,pred_idx]
+
+            # Handle all possible SHAP output shapes
+            if isinstance(sv_raw, list):
+                # List of arrays — one per class
+                shap_vals = sv_raw[pred_idx][0]
+            elif sv_arr.ndim == 3:
+                # (n_samples, n_features, n_classes)
+                if sv_arr.shape[2] == 3:
+                    shap_vals = sv_arr[0, :, pred_idx]
+                # (n_classes, n_samples, n_features)
+                elif sv_arr.shape[0] == 3:
+                    shap_vals = sv_arr[pred_idx, 0, :]
                 else:
-                    shap_vals=sv_arr[pred_idx,0,:]
+                    shap_vals = sv_arr[0, :, 0]
+            elif sv_arr.ndim == 2:
+                # (n_samples, n_features) — binary
+                shap_vals = sv_arr[0]
             else:
-                shap_vals=sv_raw[pred_idx][0]
-            shap_ok = True
-        except Exception:
-            pass
+                shap_vals = np.zeros(len(FEATURES))
+
+            # Safety check — must be 1D length 16
+            shap_vals = np.array(
+                shap_vals).flatten()
+            if len(shap_vals) != len(FEATURES):
+                shap_vals = np.zeros(len(FEATURES))
+                shap_ok   = False
+            else:
+                shap_ok = True
+
+        except Exception as e:
+            shap_vals = np.zeros(len(FEATURES))
+            shap_ok   = False
 
     # ── Results layout ────────────────────────────────
     st.markdown("---")
